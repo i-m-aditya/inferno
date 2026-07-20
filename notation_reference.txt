@@ -1,0 +1,156 @@
+TINY-LLM COURSE — NOTATION QUICK REFERENCE
+============================================
+(Personal cheat sheet — not part of the official course docs)
+
+DIMENSION SYMBOLS
+------------------
+N ..    Batch dimension(s). Zero or more leading axes representing how many
+        independent sequences you're processing at once. Written "N.." because
+        it can be zero-dim (no batching) or multi-dim depending on context.
+
+L       Sequence length of the QUERY. Number of tokens being processed /
+        generated in this call. (In PyTorch's API this is sometimes called
+        the "target length".)
+
+S       Sequence length of the KEY/VALUE ("source length"). Equals L in
+        simple self-attention (Day 1 Task 1), but can differ once you have
+        a KV cache (query = new token(s), key/value = full history so far).
+
+
+On "L is total sequence length = input + output":** that's slightly off. `L` isn't necessarily "the whole conversation so far" — it's just "however many tokens you're passing into *this particular call* of the attention function as queries." During the prompt-processing phase (prefill), `L` might indeed be your entire prompt length. But during token-by-token generation later in the course, each individual step passes `L=1` (just the one new token being generated) — not the running total. So `L` = size of *this call's* query batch, not a cumulative input+output count. It can vary call to call.
+
+**Your thesis on S — "how many tokens would each L token attend to":** essentially right, with a small precision fix. `S` = how many candidate key/value positions *exist* for this call (the size of the pool being attended over) — not literally "how many tokens each L token attends to" (that number can be smaller than S once you apply a mask — e.g. causal masking blocks some of those S candidates). So more precisely: **S is the size of the search space; the mask determines which subset of that S each query position is actually allowed to attend to.
+
+D       Head dimension. The size of the embedding for ONE attention head.
+        Also called head_dim.
+
+E       Hidden size / embedding dimension / model dimension (also called
+        dims or model_dim). The full per-token vector width before it gets
+        split into heads. Relationship: E = H * D.
+
+H       Number of attention heads (in plain MHA, same for Q/K/V).
+
+H_q     Number of QUERY heads specifically (GQA / Day 3 context).
+
+H_kv/H  Number of KEY/VALUE heads specifically (GQA / Day 3 context).
+        H_q must be divisible by H. n_repeats = H_q // H = how many query
+        heads share one K/V head.
+
+I / O   Generic input-dim / output-dim used in the `linear` function's
+        signature (I = incoming feature size, O = outgoing feature size).
+        Weight matrix shape convention: O x I.
+
+
+SHAPE CONVENTIONS (how axes are ordered at each stage)
+-------------------------------------------------------
+Raw token embeddings (before Q/K/V projection):     N x L x E
+After Q/K/V projection, before splitting heads:      N x L x (H*D)
+After splitting heads, before attention:             N x L x H x D
+Transposed for attention math (heads act as batch):  N.. x H x L x D
+Attention scores (Q @ K^T):                          N.. x H x L x S
+Attention output (after @ V), before merge:          N.. x H x L x D
+After merging heads back:                            N x L x (H*D)  == N x L x E
+Final output (after W_o projection):                 N x L x E
+
+Weight matrix shapes:
+  w_q / w_k / w_v :  (H x D) x E     i.e. O x I where O=H*D, I=E
+  w_o             :  E x (H x D)     i.e. O x I where O=E,   I=H*D
+
+
+KEY OPERATIONS / FUNCTIONS
+----------------------------
+scale             1/sqrt(D) by default — normalizes QK^T so softmax doesn't
+                  saturate as D grows. Caller can override.
+
+mask              Additive mask (values added to scores BEFORE softmax).
+                  Use -inf to fully block a position (softmax -> 0 weight).
+                  causal mask: (L, S) matrix, 0 where key pos <= allowed,
+                  -inf where it's a "future" position relative to the query.
+
+softmax(x, axis)  Normalizes so values along `axis` sum to 1. Attention
+                  always softmaxes over axis=-1 (the S / key dimension) —
+                  each query's distribution over the keys it can see.
+
+linear(x, w, b)   y = x @ w^T + b. x: N..xI, w: OxI, b: O (optional).
+                  Broadcasting handles adding bias across all N.. and L.
+
+swapaxes(a, i, j) Swap exactly two axes, leave all others untouched.
+                  Used to move H next to the batch dims for attention,
+                  and to transpose K's last two axes for QK^T.
+
+reshape           Reinterpret axes WITHOUT moving data semantically wrong —
+                  only valid when adjacent axes are being merged/split
+                  (e.g. H*D <-> H,D). Note: after a swapaxes/transpose,
+                  data may not be memory-contiguous; MLX's reshape handles
+                  this transparently (unlike raw numpy in some cases).
+
+outer(a, b)       Outer product of two 1D vectors -> 2D matrix of all
+                  pairwise products. Used in RoPE to build the
+                  (seq_len, D//2) angle matrix from positions x frequencies.
+
+[None, :, None, :]  Inserts new size-1 axes at specific positions so a
+                  smaller array (e.g. RoPE's cos/sin, shape L x D//2)
+                  broadcasts correctly against a bigger one (e.g.
+                  N x L x H x D//2). Broadcasting rule: compare shapes
+                  right-to-left; axes must match or be size 1.
+
+
+ROPE-SPECIFIC SYMBOLS
+------------------------
+base        Constant in the frequency formula (default 10000).
+theta_i     Angular frequency for pair i: theta_i = base ** (-2i/D).
+            i = 0 -> fast rotation; i = D/2-1 -> very slow rotation.
+pos         Token's absolute position in the sequence (0-indexed, or
+            offset-adjusted if `offset` is given).
+angle       pos * theta_i — the actual rotation angle for a given
+            (position, pair) combination.
+cos_freqs /
+sin_freqs   Precomputed (MAX_SEQ_LEN, D//2) tables of cos(angle)/sin(angle),
+            built once in RoPE.__init__.
+offset      None -> positions are 0..L-1. A slice (e.g. 5:10) -> these L
+            tokens actually represent positions 5..9 (relevant once you
+            have a KV cache and are decoding token-by-token, not from
+            scratch).
+traditional Bool flag: True = pairs are adjacent indices (x[0],x[1]),
+            (x[2],x[3])... False (Qwen3's scheme) = pairs are first-half
+            vs second-half split (x[i], x[i+D/2]).
+real / imag Naming borrowed from viewing each (x1,x2) pair as a complex
+            number x1 + i*x2; a 2D rotation = multiplying by
+            cos(theta) + i*sin(theta). Not a new concept — just complex-
+            number vocabulary for the same pairwise rotation.
+
+
+GQA-SPECIFIC SYMBOLS (Week 1 Day 3)
+--------------------------------------
+n_repeats   H_q // H — number of query heads that share one K/V head.
+            Implemented via broadcasting, not physical duplication:
+              query reshaped: H_q -> (H, n_repeats)
+              key/value reshaped: insert size-1 axis -> (H, 1, ...)
+            so Q @ K^T broadcasts the shared K/V head across its group
+            of query heads without copying memory.
+
+
+GENERAL PYTHON/MLX SYNTAX NOTES
+-----------------------------------
+x[..., 0::2]   Ellipsis (...) = keep all leading axes as-is, regardless of
+               how many there are. 0::2 = start:stop:step slice -> every
+               other element starting at index 0 (even indices).
+x[..., 1::2]   Same but starting at index 1 (odd indices).
+x[..., :D//2]  First half of the last axis. (Careful: forgetting the `:`
+               before D//2 indexes a SINGLE element and drops that axis
+               entirely — a real bug we hit.)
+a @ b / matmul Matrix multiplication (contracts last axis of a with
+               second-to-last axis of b). NOT the same as `*`.
+a * b          Elementwise (Hadamard) multiplication. Requires matching
+               or broadcastable shapes. Never does dimension contraction.
+
+MLX is LAZY: operations build a computation graph; nothing actually runs
+on CPU/GPU until the result is "materialized" (printed, converted, or
+mx.eval() called) — similar to a DB query plan vs. actually fetching rows.
+
+
+ENVIRONMENT NOTES
+--------------------
+Always use `pdm run python` (or .venv/bin/python) to get the project's
+virtualenv with mlx installed. Plain `python3` on PATH is a different,
+unrelated system/global install with no project dependencies.
