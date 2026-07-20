@@ -92,9 +92,7 @@ class Qwen3MultiHeadAttention:
         ).swapaxes(-3, -2).astype(mx.float32)
 
         # B, H, L, D
-        v = self.rope(
-           x=v, offset=slice(0, L)
-        ).swapaxes(-3, -2).astype(mx.float32)
+        v = v.swapaxes(-3, -2).astype(mx.float32)
 
         attention = scaled_dot_product_attention_grouped(
             query=q,
@@ -102,7 +100,7 @@ class Qwen3MultiHeadAttention:
             value=v,
             scale=1/math.sqrt(self.head_dim),
             mask=mask
-        )
+        ).astype(x.dtype)
 
         # B L Hq D
         output = attention.swapaxes(-3, -2)
