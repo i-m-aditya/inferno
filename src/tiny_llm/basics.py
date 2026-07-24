@@ -22,4 +22,13 @@ def linear(
 
 
 def silu(x: mx.array) -> mx.array:
-    pass
+
+    sigmoid = 1 / (1 + mx.exp(-mx.abs(x)))
+
+    sigmoid_neg = 1 - sigmoid
+
+    condition = x > 0
+
+    silu = mx.where(condition, sigmoid, sigmoid_neg)
+
+    return x * silu
