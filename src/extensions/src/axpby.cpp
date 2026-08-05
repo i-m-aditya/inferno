@@ -51,11 +51,15 @@ mx::array axpby(const mx::array &x,              // Input mx::array x
     // Construct the array as the output of the Axpby primitive
     // with the broadcasted and upcasted arrays as inputs
     return mx::array(
-        /* const mx::Shape& shape = */ out_shape,
-        /* mx::Dtype dtype = */ out_dtype,
+        /* const mx::Shape& shape = */
+        out_shape,
+        /* mx::Dtype dtype = */
+        out_dtype,
         /* std::shared_ptr<mx::Primitive> primitive = */
         std::make_shared<Axpby>(to_stream(s), alpha, beta),
-        /* const std::vector<mx::array>& inputs = */ broadcasted_inputs);
+        /* const std::vector<mx::array>& inputs = */
+        broadcasted_inputs
+    );
 }
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -31,4 +31,7 @@ NB_MODULE(_ext, m) {
         Returns:
             array: ``alpha * x + beta * y``
       )");
+
+    m.def("quantized_matmul", &tiny_llm_ext::quantized_matmul, "scales"_a, "biases"_a, "group_size"_a, "bits"_a,
+          "a"_a, "b"_a, "transpose_b"_a, nb::kw_only(), "stream"_a = nb::none());
 }

@@ -1,5 +1,7 @@
+import math
+
 import mlx.core as mx
-from .basics import silu
+from .basics import linear, silu
 from .attention import scaled_dot_product_attention_grouped
 from .layer_norm import RMSNorm
 from .positional_encoding import RoPE
@@ -27,16 +29,96 @@ class Qwen3MultiHeadAttention:
         rms_norm_eps: float = 1e-5,
         use_flash_attention: bool = False,
     ):
-        pass
+
+
+        self.hidden_size = hidden_size
+        self.num_heads = num_heads
+        self.num_kv_heads = num_kv_heads
+
+        self.head_dim = head_dim
+
+        self.wq = dequantize_linear(wq)
+        self.wk = dequantize_linear(wk)
+        self.wv = dequantize_linear(wv)
+        self.wo = dequantize_linear(wo)
+
+        self.q_norm = q_norm
+        self.k_norm = k_norm
+
+        self.rope = RoPE(
+            dims=head_dim,
+            seq_len=max_seq_len,
+            base=theta,
+            traditional=False
+        )
+
+        self.rms_norm_eps = rms_norm_eps
+        self.use_flash_attention = use_flash_attention
 
     def __call__(
         self,
         x: mx.array,
-        offsets: list[int],
+        offset: int,
         cache: TinyKvCache,
         mask: mx.array | str | None = None,
     ) -> mx.array:
-        pass
+        B, L, E = x.shape
+        # B, L, H_q, D
+        q = linear(x, self.wq).reshape(B, L, self.num_heads, self.head_dim)
+
+        # B, L, H, D
+        k = linear(x, self.wk).reshape(B, L, self.num_kv_heads, self.head_dim)
+        v = linear(x, self.wv).reshape(B, L, self.num_kv_heads, self.head_dim)
+
+
+        q = mx.fast.rms_norm(
+            q, self.q_norm, self.rms_norm_eps
+        )
+
+        k = mx.fast.rms_norm(
+            k, self.k_norm, self.rms_norm_eps
+        )
+
+
+        '''
+            Apply rope to q and k, v never gets rope
+        '''
+        # B, H_q, L, D
+        q = self.rope(
+            x=q, offset=slice(offset, offset + L)
+        ).swapaxes(-3,-2).astype(mx.float32)
+
+         # B, H, L, D
+        k = self.rope(
+            x=k, offset=slice(offset, offset + L)
+        ).swapaxes(-3, -2).astype(mx.float32)
+
+        # B, H, L, D
+        v = v.swapaxes(-3, -2).astype(mx.float32)
+
+
+        # caching (k/v are already rope'd; cache accumulates rotated K, raw V)
+        k, v, cache_offset, _ = cache.update_and_fetch(k, v, None, None)
+        assert cache_offset - L == offset, "offset passed in must match cache's prior length"
+
+
+        attention = scaled_dot_product_attention_grouped(
+            query=q,
+            key=k,
+            value=v,
+            scale=1/math.sqrt(self.head_dim),
+            mask=mask
+        ).astype(x.dtype)
+
+        # B L Hq D
+        output = attention.swapaxes(-3, -2)
+
+        # B L (Hq * D)
+        output = output.reshape(B, L, (self.num_heads*self.head_dim))
+
+        output = linear(output, self.wo)
+
+        return output
 
 
 class Qwen3MLP:
@@ -48,11 +130,22 @@ class Qwen3MLP:
         w_up: QuantizedWeights,
         w_down: QuantizedWeights,
     ):
-        pass
+        self.dim = dim
+        self.hidden_dim = hidden_dim
+        self.w_gate = dequantize_linear(w_gate)
+        self.w_down = dequantize_linear(w_down)
+        self.w_up = dequantize_linear(w_up)
 
     def __call__(self, x: mx.array) -> mx.array:
-        pass
 
+
+       u = linear(x, self.w_up)
+
+       g  = silu(linear(x, self.w_gate))
+
+       out = linear(g * u, self.w_down)
+
+       return out
 
 class Qwen3TransformerBlock:
     def __init__(
@@ -78,7 +171,43 @@ class Qwen3TransformerBlock:
         theta: int = 1000000,
         use_flash_attention: bool = False,
     ):
-        pass
+
+        self.attention = Qwen3MultiHeadAttention(
+            hidden_size,
+            num_attention_heads,
+            num_kv_heads,
+            head_dim,
+            wq,
+            wk,
+            wv,
+            wo,
+            q_norm,
+            k_norm,
+            max_seq_len,
+            theta,
+            rms_norm_eps,
+            use_flash_attention
+        )
+
+        self.mlp = Qwen3MLP(
+            dim=hidden_size,
+            hidden_dim=intermediate_size,
+            w_gate=w_gate,
+            w_up=w_up,
+            w_down=w_down
+        )
+        self.input_layernorm = RMSNorm(
+            dim=hidden_size,
+            weight=w_input_layernorm,
+            eps=rms_norm_eps
+        )
+        self.post_attention_layernorm = RMSNorm(
+            dim=hidden_size,
+            weight=w_post_attention_layernorm,
+            eps=rms_norm_eps
+        )
+
+        self.use_flash_attention = use_flash_attention
 
     def __call__(
         self,
@@ -87,7 +216,17 @@ class Qwen3TransformerBlock:
         cache: TinyKvCache,
         mask: mx.array | str | None = None,
     ) -> mx.array:
-        pass
+        # normalized
+        normalized_x = self.input_layernorm(x)
+        attention = self.attention(normalized_x, offset, cache=cache, mask=mask)
+        x = x + attention
+
+        normalized_x = self.post_attention_layernorm(x)
+        mlp = self.mlp(normalized_x)
+
+        x = x + mlp
+
+        return x
 
 
 class Qwen3ModelWeek2:
@@ -97,7 +236,54 @@ class Qwen3ModelWeek2:
         enable_flash_attn: bool = False,
     ):
         self.num_hidden_layers = mlx_model.args.num_hidden_layers
-        pass
+        self.hidden_size = mlx_model.args.hidden_size
+        self.vocab_size = mlx_model.args.vocab_size
+        precision = mx.bfloat16
+        self.precision = precision
+
+        self.embedding = Embedding(
+            vocab_size=self.vocab_size,
+            embedding_dim=self.hidden_size,
+            weight=dequantize_linear(mlx_model.model.embed_tokens),
+        )
+        self.layers = []
+        for i in range(mlx_model.args.num_hidden_layers):
+            layer = Qwen3TransformerBlock(
+                num_attention_heads=mlx_model.args.num_attention_heads,
+                num_kv_heads=mlx_model.args.num_key_value_heads,
+                hidden_size=mlx_model.args.hidden_size,
+                head_dim=mlx_model.args.head_dim,
+                intermediate_size=mlx_model.args.intermediate_size,
+                rms_norm_eps=mlx_model.args.rms_norm_eps,
+                wq=mlx_model.model.layers[i].self_attn.q_proj,
+                wk=mlx_model.model.layers[i].self_attn.k_proj,
+                wv=mlx_model.model.layers[i].self_attn.v_proj,
+                wo=mlx_model.model.layers[i].self_attn.o_proj,
+                q_norm=mlx_model.model.layers[i].self_attn.q_norm.weight,
+                k_norm=mlx_model.model.layers[i].self_attn.k_norm.weight,
+                w_gate=mlx_model.model.layers[i].mlp.gate_proj,
+                w_down=mlx_model.model.layers[i].mlp.down_proj,
+                w_up=mlx_model.model.layers[i].mlp.up_proj,
+                w_input_layernorm=mlx_model.model.layers[i].input_layernorm.weight,
+                w_post_attention_layernorm=mlx_model.model.layers[
+                    i
+                ].post_attention_layernorm.weight,
+                max_seq_len=mlx_model.args.max_position_embeddings,
+                theta=mlx_model.args.rope_theta,
+            )
+
+            self.layers.append(layer)
+        self.norm = RMSNorm(
+            mlx_model.args.hidden_size,
+            weight=mlx_model.model.norm.weight,
+            eps=mlx_model.args.rms_norm_eps
+        )
+
+        if not mlx_model.args.tie_word_embeddings:
+            self.w_lm_head = dequantize_linear(mlx_model.lm_head)
+
+        self.mlx_model = mlx_model
+
 
     def __call__(
         self,
@@ -105,4 +291,19 @@ class Qwen3ModelWeek2:
         offset: int,
         cache: list[TinyKvCache],
     ) -> mx.array:
-        pass
+        # N.. x L x E
+        x = self.embedding(inputs)
+        *N, L, E = x.shape
+        mask = "causal" if L > 1 else None
+
+        for i in range(len(self.layers)):
+            x = self.layers[i](x, offset, cache[i], mask)
+
+        x = self.norm(x)
+
+
+        if hasattr(self, 'w_lm_head'):
+            output = linear(x, self.w_lm_head)
+        else:
+            output = self.embedding.as_linear(x)
+        return output

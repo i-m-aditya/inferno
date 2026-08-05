@@ -92,10 +92,9 @@ def causal_mask(L: int, S: int, dtype: mx.Dtype) -> mx.array:
 
     allowed = key_pos <= query_pos + (S-L)
 
-    mask = mx.where(allowed, mx.array(0.0), mx.array(-mx.inf))
+    mask = mx.where(allowed, 0.0, -mx.inf)
 
     mask = mask.astype(dtype)
-
 
     return mask
 
