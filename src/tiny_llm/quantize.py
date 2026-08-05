@@ -52,8 +52,18 @@ def quantized_matmul(
     #
 ) -> mx.array:
 
-    output = tiny_llm_ext.quantized_matmul(scales, biases, group_size, bits, a, b, transpose_b)
-    return output
+    *N, D = a.shape
+    # here -1 means, in a 2d setup, dynamically calc what would
+    # be the value of this dimension
+    a = a.reshape(-1, D)
+    scales = mx.contiguous(scales)
+    biases = mx.contiguous(biases)
+    a = mx.contiguous(a)
+    b = mx.contiguous(b)
+
+    # this is invoking/calling the python bindings of a c++ code
+    return tiny_llm_ext.quantized_matmul(scales, biases, group_size, bits, a, b, transpose_b).reshape(*N, -1)
+
 
 
 def quantized_linear(
