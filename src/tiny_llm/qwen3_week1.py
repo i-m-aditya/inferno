@@ -77,8 +77,6 @@ class Qwen3MultiHeadAttention:
             k, self.k_norm, self.rms_norm_eps
         )
 
-
-
         '''
             Apply rope to q and k, v never gets rope
         '''
@@ -127,7 +125,6 @@ class Qwen3MLP:
         self.w_gate = w_gate
         self.w_down = w_down
         self.w_up = w_up
-        pass
 
     def __call__(self, x: mx.array) -> mx.array:
 
@@ -215,6 +212,7 @@ class Qwen3TransformerBlock:
 
 
 class Qwen3ModelWeek1:
+    # `mlx_model` we currently rely on this to load weights to memory
     def __init__(self, mlx_model: Any):
         self.num_hidden_layers = mlx_model.args.num_hidden_layers
         self.hidden_size = mlx_model.args.hidden_size

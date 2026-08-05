@@ -1,6 +1,6 @@
 import mlx.core as mx
 from tiny_llm.basics import linear
-from .quantize import QuantizedWeights
+from .quantize import QuantizedWeights, quantized_linear
 
 
 class Embedding:
@@ -11,11 +11,7 @@ class Embedding:
         self.weight = weight
 
     def __call__(self, x: mx.array) -> mx.array:
-        output = self.weight[x]
-        # x ---  token indexes
-        # weight --- index to vector
-        return output
-
+        return self.weight[x]
 
 
     def as_linear(self, x: mx.array) -> mx.array:
@@ -26,10 +22,21 @@ class Embedding:
 
 class QuantizedEmbedding:
     def __init__(self, vocab_size: int, embedding_dim: int, weight: QuantizedWeights):
-        pass
+        self.vocab_size = vocab_size
+        self.embedding_dim = embedding_dim
+        self.weight = weight
+
 
     def __call__(self, x: mx.array) -> mx.array:
-        pass
+        biases = self.weight.biases[x] if self.weight.biases is not None else None
+
+        return mx.dequantize(
+            self.weight.weight[x],
+            self.weight.scales[x],
+            biases,
+            self.weight.group_size,
+            self.weight.bits
+        )
 
     def as_linear(self, x: mx.array) -> mx.array:
-        pass
+        return quantized_linear(x, self.weight)

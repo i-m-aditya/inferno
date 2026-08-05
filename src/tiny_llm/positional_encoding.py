@@ -34,9 +34,16 @@ class RoPE:
     '''
     Overall desired outcome of `__call__`
 
-    Input: `x` — a raw query or key tensor, shape `N x L x H x D`, with no positional information encoded (attention alone is position-blind, as discussed). Plus `offset`, telling you which absolute positions this `x`'s `L` tokens correspond to.
+    Input: `x` — a raw query or key tensor, shape `N x L x H x D`,
+    with no positional information encoded (attention alone is position-blind, as discussed).
+    Plus `offset`, telling you which absolute positions this `x`'s `L` tokens correspond to.
 
-    Output: same shape `N x L x H x D`, but now each token's `D`-dim vector has been rotated — each of its `D/2` pairs spun by an angle proportional to that token's position and that pair's frequency. This rotated tensor is what gets passed into `scaled_dot_product_attention_simple` in place of the raw `q`/`k` — so that when `QK^T` computes dot products, those scores end up encoding *relative* position between query and key tokens, per the math we discussed earlier.
+    Output: same shape `N x L x H x D`, but now each token's `D`-dim vector
+    has been rotated — each of its `D/2` pairs spun by an angle proportional to that token's position
+    and that pair's frequency. This rotated tensor is what gets passed into
+    `scaled_dot_product_attention_simple` in place of the raw `q`/`k` — so that when `QK^T` computes dot products,
+    those scores end up encoding *relative* position between query and key tokens,
+    per the math we discussed earlier.
     '''
     def __call__(
         self, x: mx.array, offset: list[slice] | slice | None = None
