@@ -7,7 +7,7 @@ from .layer_norm import RMSNorm
 from .positional_encoding import RoPE
 from typing import Any
 from .embedding import Embedding
-from .quantize import dequantize_linear, QuantizedWeights
+from .quantize import dequantize_linear, QuantizedWeights, quantized_linear
 from .kv_cache import TinyKvCache
 
 
@@ -37,10 +37,10 @@ class Qwen3MultiHeadAttention:
 
         self.head_dim = head_dim
 
-        self.wq = dequantize_linear(wq)
-        self.wk = dequantize_linear(wk)
-        self.wv = dequantize_linear(wv)
-        self.wo = dequantize_linear(wo)
+        self.wq = wq
+        self.wk = wk
+        self.wv = wv
+        self.wo = wo
 
         self.q_norm = q_norm
         self.k_norm = k_norm
@@ -64,11 +64,11 @@ class Qwen3MultiHeadAttention:
     ) -> mx.array:
         B, L, E = x.shape
         # B, L, H_q, D
-        q = linear(x, self.wq).reshape(B, L, self.num_heads, self.head_dim)
+        q = quantized_linear(x, self.wq).reshape(B, L, self.num_heads, self.head_dim)
 
         # B, L, H, D
-        k = linear(x, self.wk).reshape(B, L, self.num_kv_heads, self.head_dim)
-        v = linear(x, self.wv).reshape(B, L, self.num_kv_heads, self.head_dim)
+        k = quantized_linear(x, self.wk).reshape(B, L, self.num_kv_heads, self.head_dim)
+        v = quantized_linear(x, self.wv).reshape(B, L, self.num_kv_heads, self.head_dim)
 
 
         q = mx.fast.rms_norm(
@@ -116,7 +116,7 @@ class Qwen3MultiHeadAttention:
         # B L (Hq * D)
         output = output.reshape(B, L, (self.num_heads*self.head_dim))
 
-        output = linear(output, self.wo)
+        output = quantized_linear(output, self.wo)
 
         return output
 
@@ -132,18 +132,18 @@ class Qwen3MLP:
     ):
         self.dim = dim
         self.hidden_dim = hidden_dim
-        self.w_gate = dequantize_linear(w_gate)
-        self.w_down = dequantize_linear(w_down)
-        self.w_up = dequantize_linear(w_up)
+        self.w_gate = w_gate
+        self.w_down = w_down
+        self.w_up = w_up
 
     def __call__(self, x: mx.array) -> mx.array:
 
 
-       u = linear(x, self.w_up)
+       u = quantized_linear(x, self.w_up)
 
-       g  = silu(linear(x, self.w_gate))
+       g  = silu(quantized_linear(x, self.w_gate))
 
-       out = linear(g * u, self.w_down)
+       out = quantized_linear(g * u, self.w_down)
 
        return out
 
