@@ -2,7 +2,7 @@ import math
 
 import mlx.core as mx
 from .basics import softmax, linear
-
+from extensions import tiny_llm_ext
 
 def scaled_dot_product_attention_simple(
     query: mx.array,
@@ -170,4 +170,42 @@ def flash_attention(
     scale: float | None = None,
     mask: mx.array | None = None,
 ) -> mx.array:
-    pass
+
+    factor = mx.rsqrt(query.shape[-1]) if scale is None else scale #type: ignore
+    factor  = mx.array(factor).astype(query.dtype)
+
+
+    *B, H_q, L, E = query.shape
+
+    _, H, S, _ = key.shape
+
+    assert H_q % H == 0
+
+    query = mx.contiguous(query.reshape(-1, L, E))
+    key = mx.contiguous(key.reshape(-1, S, E))
+    value = mx.contiguous(value.reshape(-1, S, E))
+
+    N = query.shape[0]
+    is_causal = mask == "causal"
+    if is_causal:
+        mask = causal_mask(L, S, query.dtype)
+        mask = mx.broadcast_to(mask, [*B, H_q, L, S])
+    elif mask is None:
+        mask = mx.zeros((*B, H_q, L, S))
+    else:
+        mask =  mx.broadcast_to(mask, [*B, H_q, L, S])
+
+    mask = mx.contiguous(mx.reshape(mask, (N, L, S))).astype(mx.float32)
+
+    scores = tiny_llm_ext.flash_attention(
+        query,
+        key,
+        value,
+        mask,
+        factor,
+        is_causal = is_causal,
+        num_heads = H_q,
+        num_kv_heads = H,
+    )
+    scores = mx.contiguous(scores.reshape([*B, H_q, L, E]))
+    return scores
