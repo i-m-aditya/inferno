@@ -157,9 +157,9 @@ namespace tiny_llm_ext {
                             } else if (col.second <= row.first + offset) {
                                 skip_mask = true;
                             }
-                        } else {
-                            skip_mask = true;
                         }
+                        // non-causal: skip_mask stays false -- always apply mask, since
+                        // it may be a real, non-trivial explicit array, not just zeros.
 
 
 
