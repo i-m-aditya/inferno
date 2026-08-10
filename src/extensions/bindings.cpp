@@ -34,4 +34,7 @@ NB_MODULE(_ext, m) {
 
     m.def("quantized_matmul", &tiny_llm_ext::quantized_matmul, "scales"_a, "biases"_a, "group_size"_a, "bits"_a,
           "a"_a, "b"_a, "transpose_b"_a, nb::kw_only(), "stream"_a = nb::none());
+
+    m.def("flash_attention", &tiny_llm_ext::flash_attention, "query"_a, "key"_a, "value"_a, "mask"_a, "scale"_a,
+          nb::kw_only(), "is_causal"_a, "num_kv_heads"_a, "num_heads"_a, "stream"_a = nb::none());
 }
