@@ -48,30 +48,10 @@ read -rp "Continue? [y/N] " ans
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# --- course-free README ----------------------------------------------------
-cat > "$TMP/README.md" <<'MD'
-# smol-llm
-
-An LLM inference engine built from scratch on [MLX](https://github.com/ml-explore/mlx),
-using low-level array/matrix APIs only — no high-level neural network abstractions.
-
-## Layout
-
-- `src/tiny_llm/` — Python implementation (model, generation, serving)
-- `src/extensions/` — C++/Metal kernels exposed via nanobind (`tiny_llm_ext`)
-- `tests/` — test suites
-- `main.py`, `bench.py`, `batch-main.py` — run & benchmark entry points
-
-## Development
-
-```bash
-pdm install -v
-pdm run check-installation
-pdm run build-ext                     # build C++/Metal extensions
-pdm run test
-pdm run main-week1                    # run the week-1 model
-```
-MD
+# --- README used to replace all course-era READMEs in history ---------------
+# Taken from the current HEAD; it must already be free of course references
+# (the verification step at the end checks for leftovers).
+git show main:README.md > "$TMP/README.md"
 
 # --- per-commit tree cleanup ------------------------------------------------
 cat > "$TMP/treefilter.sh" <<SH
