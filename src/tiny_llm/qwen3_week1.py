@@ -3,7 +3,7 @@ import mlx.core as mx
 from sympy.geometry.util import deque
 from tiny_llm.embedding import Embedding
 from tiny_llm.layer_norm import RMSNorm
-from tiny_llm_ref.quantize import dequantize_linear
+from .quantize import dequantize_linear
 from .basics import linear, silu
 from .attention import causal_mask, scaled_dot_product_attention_grouped
 from .positional_encoding import RoPE
