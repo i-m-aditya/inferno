@@ -1,8 +1,8 @@
-# smol-llm
+# inferno
 
 **LLM inference from first principles: a Qwen3 serving engine written end-to-end on [MLX](https://github.com/ml-explore/mlx), targeting Apple Silicon.**
 
-smol-llm is a transformer inference engine in which nothing is delegated to a framework's model library. Every layer — embeddings, rotary position encoding, grouped-query attention, RMSNorm, SwiGLU — is built directly on raw array operations, and every performance-critical kernel (4-bit quantized matrix multiplication, flash attention) is a custom C++/Metal primitive registered into the MLX runtime. Weights are loaded straight from Hugging Face `MLX-4bit` checkpoints and **remain quantized throughout the forward pass**.
+Inferno is a transformer inference engine in which nothing is delegated to a framework's model library. Every layer — embeddings, rotary position encoding, grouped-query attention, RMSNorm, SwiGLU — is built directly on raw array operations, and every performance-critical kernel (4-bit quantized matrix multiplication, flash attention) is a custom C++/Metal primitive registered into the MLX runtime. Weights are loaded straight from Hugging Face `MLX-4bit` checkpoints and **remain quantized throughout the forward pass**.
 
 The objective is an engine where every byte of memory traffic and every FLOP is accounted for by code in this repository — and then to push it further: paged KV caches, continuous batching, mixture-of-experts.
 
