@@ -207,10 +207,7 @@ namespace tiny_llm_ext {
                         }
                     }
 
-                    // TODO (your turn): normalize and write this tile's output.
-                    // For r in 0..actual_br, e in 0..E:
-                    //   out_ptr[(n*L + i*Br + r) * E + e] = static_cast<T>(o_i[r*E + e] / l_i[r]);
-                    //
+
                     for (int r=0; r<actual_br; r++) {
                         for (int e=0; e<E; e++) {
                             out_ptr[(n*L + i*Br + r) * E + e] = static_cast<float>(o_i[r*E+e] / l_i[r]);
