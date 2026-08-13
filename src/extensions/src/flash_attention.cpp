@@ -90,6 +90,7 @@ namespace tiny_llm_ext {
         encoder.set_input_array(mask);
         encoder.set_output_array(out);
 
+        // shape of a tile
         const int Br = 32, Bc = 32;
         auto query_shape = query.shape();
         auto key_shape = key.shape();
@@ -115,8 +116,6 @@ namespace tiny_llm_ext {
             const T *k_ptr = key.data<T>();
             const T *v_ptr = value.data<T>();
             const T *mask_ptr = mask.data<T>();
-
-
 
             for (int n = 0; n < N; n++) {
                 const int batch_idx = n / num_heads_;
@@ -158,24 +157,10 @@ namespace tiny_llm_ext {
                                 skip_mask = true;
                             }
                         }
-                        // non-causal: skip_mask stays false -- always apply mask, since
-                        // it may be a real, non-trivial explicit array, not just zeros.
-
-
-
-
-
-                        // TODO (your turn): Step A -- compute the raw score block for
-                        // this tile. For r in 0..actual_br, c in 0..actual_bc:
-                        //   S[r][c] = scale_ * dot(Q_row, K_row)
-                        // where Q_row = q_ptr + (n*L + i*Br + r) * E
-                        //       K_row = k_ptr + (n_kv*S + j*Bc + c) * E
-                        // Store the actual_br x actual_bc block somewhere local (e.g.
-                        // a std::vector<float> of size actual_br*actual_bc).
-
 
                         std::vector<float> scores(actual_br * actual_bc);
 
+                        // for one tile, doing q*K^T and then scaling
                         for (int r=0; r < actual_br; r++) {
                             for (int c=0; c < actual_bc; c++) {
                                 auto q_row = q_ptr + (n*L + i*Br + r) * E;
@@ -264,8 +249,68 @@ namespace tiny_llm_ext {
 
     }
 
-    // TODO(Task 3): replace this with the real Metal dispatch.
     void FlashAttention::eval_gpu(const std::vector<mx::array> &inputs, std::vector<mx::array> &outputs) {
-        throw std::runtime_error("FlashAttention: eval_gpu not implemented yet");
+        auto &query = inputs[0];
+        auto &key = inputs[1];
+        auto &value = inputs[2];
+        auto &mask = inputs[3];
+        auto &out = outputs[0];
+
+        // Same contiguity requirement as the CPU path -- the kernel indexes
+        // these with simple raw offsets, no stride handling.
+        if (!query.flags().row_contiguous || !key.flags().row_contiguous ||
+            !value.flags().row_contiguous || !mask.flags().row_contiguous) {
+            throw std::runtime_error("flash_attention: all inputs must be contiguous");
+        }
+
+        auto &s = stream();
+        auto &d = mx::metal::device(s.device);
+
+        out.set_data(mx::allocator::malloc(out.nbytes()));
+
+        auto query_shape = query.shape();
+        auto key_shape = key.shape();
+        const int N = query_shape[0];
+        const int L = query_shape[1];
+        const int S = key_shape[1];
+        const int E = key_shape.back();
+        if (E > 128) {
+            // The kernel's threadgroup memory is sized for a max of E=128
+            // (compile-time size) -- see flash_attention.metal. E itself is
+            // a runtime value; anything up to 128 works.
+            throw std::runtime_error("flash_attention GPU kernel only supports E <= 128");
+        }
+
+        const int Br = 32;
+        const int Tr = (L + Br - 1) / Br;
+
+        auto library = d.get_library("tiny_llm_ext");
+        auto kernel = d.get_kernel("flash_attention_f32_e128", library);
+
+        auto &compute_encoder = d.get_command_encoder(s.index);
+        compute_encoder.set_compute_pipeline_state(kernel);
+
+        // Buffer indices here must match [[buffer(N)]] in flash_attention.metal.
+        compute_encoder.set_input_array(query, 0);
+        compute_encoder.set_input_array(key, 1);
+        compute_encoder.set_input_array(value, 2);
+        compute_encoder.set_input_array(mask, 3);
+        compute_encoder.set_output_array(out, 4);
+        compute_encoder.set_bytes(N, 5);
+        compute_encoder.set_bytes(L, 6);
+        compute_encoder.set_bytes(S, 7);
+        compute_encoder.set_bytes(E, 8);
+        compute_encoder.set_bytes(num_kv_heads_, 9);
+        compute_encoder.set_bytes(num_heads_, 10);
+        compute_encoder.set_bytes(scale_, 11);
+        compute_encoder.set_bytes(is_causal_, 12);
+
+        // One threadgroup per (n, i); dispatch_threadgroups takes the
+        // threadgroup COUNT directly (unlike dispatch_threads, which takes a
+        // total thread count and computes the threadgroup count itself).
+        MTL::Size grid_dims = MTL::Size(N, Tr, 1);
+        MTL::Size group_dims = MTL::Size(32, 32, 1);
+
+        compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
     }
 }
