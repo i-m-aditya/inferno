@@ -1,4 +1,4 @@
-# my-llm
+# smol-llm
 
 An LLM inference engine built from scratch on [MLX](https://github.com/ml-explore/mlx),
 using low-level array/matrix APIs only — no high-level neural network abstractions.

@@ -8,7 +8,7 @@
 #        - drops scripts/sync-course.sh, scripts/sever-course.sh and
 #          notation_reference.txt from every commit
 #        - replaces README.md with a course-free version in every commit
-#        - renames the package "tiny-llm" -> "my-llm" in every commit
+#        - renames the package to "smol-llm" in every commit
 #        - rewrites the two commit messages that mention the origin
 #        - prunes commits that become empty (the two script commits)
 #   3. Deletes the sync tag, the course/upstream remotes, and the
@@ -50,7 +50,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 # --- course-free README ----------------------------------------------------
 cat > "$TMP/README.md" <<'MD'
-# my-llm
+# smol-llm
 
 An LLM inference engine built from scratch on [MLX](https://github.com/ml-explore/mlx),
 using low-level array/matrix APIs only — no high-level neural network abstractions.
@@ -78,10 +78,10 @@ cat > "$TMP/treefilter.sh" <<SH
 rm -f scripts/sync-course.sh scripts/sever-course.sh notation_reference.txt
 if [ -f README.md ]; then cp "$TMP/README.md" README.md; fi
 if [ -f pyproject.toml ]; then
-  sed -i '' 's/^name = "tiny-llm"\$/name = "my-llm"/' pyproject.toml
+  sed -i '' 's/^name = ".*"\$/name = "smol-llm"/' pyproject.toml
 fi
 for f in bench.py src/extensions/bindings.cpp; do
-  if [ -f "\$f" ]; then sed -i '' 's/tiny-llm/my-llm/g' "\$f"; fi
+  if [ -f "\$f" ]; then sed -i '' 's/tiny-llm/smol-llm/g' "\$f"; fi
 done
 true
 SH
