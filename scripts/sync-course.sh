@@ -35,10 +35,12 @@ if [ -z "$PICKS" ]; then
 fi
 
 echo "Commits to transfer:"
-git log --no-walk --format='  %h %ad %s' --date=short $PICKS
+for sha in $PICKS; do
+  echo "  $(git log -1 --format='%h %ad %s' --date=short "$sha")"
+done
 echo
 echo "Files affected:"
-git log --no-walk --name-only --format='%h %s' $PICKS | grep -v '^[0-9a-f]\{7,\} ' | sort -u | sed 's/^/  /'
+git log --no-walk --name-only --format='' $PICKS | grep -v '^$' | sort -u | sed 's/^/  /'
 echo
 read -rp "Proceed? [y/N] " ans
 [ "$ans" = "y" ] || { echo "Aborted."; exit 1; }
@@ -49,7 +51,7 @@ for sha in $PICKS; do
   git tag -f sync/course "$sha"
 done
 
-git push -q origin sync/course
+git push -qf origin sync/course
 if [ "${1:-}" = "--no-push" ]; then
   echo "Sync complete (not pushed; run 'git push origin main' when satisfied)."
 else
