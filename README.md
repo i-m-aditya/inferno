@@ -78,7 +78,7 @@ sequenceDiagram
 
     loop decode, one token at a time
         R->>M: new token + offset
-        M->>C: append k,v; fetch full history
+        M->>C: append k and v, fetch full history
         M->>K: flash_attention(q, K, V, causal)
         K-->>M: attention output
         M-->>R: logits → next token
@@ -105,23 +105,6 @@ main.py           Single-request runner (model core + KV-cache builds)
 batch-main.py     Batched serving runner (serving phase)
 bench.py          Throughput benchmark harness (prefill + decode, batched requests)
 ```
-
-## Getting started
-
-Requires macOS on Apple Silicon, Python 3.10–3.12, and [pdm](https://pdm-project.org).
-
-```bash
-pdm install -v
-pdm run check-installation
-pdm run build-ext          # compile C++/Metal extensions
-
-pdm run test               # parity suites (model-size tests skip if weights absent)
-pdm run main-week1         # Qwen3-0.6B, full-sequence attention path
-pdm run main-week2         # Qwen3-0.6B, KV-cache decode path
-pdm run bench --help       # throughput harness
-```
-
-Model weights are pulled from the Hugging Face Hub on first use (e.g. `Qwen/Qwen3-0.6B-MLX-4bit`).
 
 ## Roadmap
 
