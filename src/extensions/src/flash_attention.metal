@@ -40,7 +40,7 @@ constant constexpr int FA_E = 128;
   const int batch_idx = n / num_heads;
   const int q_head_idx = n % num_heads;
   const int kv_head_idx = q_head_idx / q_kv_heads_ratio;
-  const int n_kv = batch_idx * num_kv_heads + kv_head_idx;
+  const int n_kv = batch_idx * num_kv_heads + kv_head_idx; // B x H x S x E
 
   const int Tc = (S + FA_BC - 1) / FA_BC;
   const int row = i * FA_BR + int(simd_gid);  // this SIMD group's absolute query row

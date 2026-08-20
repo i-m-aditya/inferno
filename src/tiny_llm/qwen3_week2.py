@@ -1,8 +1,9 @@
 import math
 
 import mlx.core as mx
+from typing_extensions import final
 from .basics import linear, silu
-from .attention import scaled_dot_product_attention_grouped
+from .attention import flash_attention, scaled_dot_product_attention_grouped
 from .layer_norm import RMSNorm
 from .positional_encoding import RoPE
 from typing import Any
@@ -10,7 +11,7 @@ from .embedding import Embedding
 from .quantize import dequantize_linear, QuantizedWeights, quantized_linear
 from .kv_cache import TinyKvCache
 
-
+@final
 class Qwen3MultiHeadAttention:
     def __init__(
         self,
@@ -29,8 +30,6 @@ class Qwen3MultiHeadAttention:
         rms_norm_eps: float = 1e-5,
         use_flash_attention: bool = False,
     ):
-
-
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
@@ -79,7 +78,6 @@ class Qwen3MultiHeadAttention:
             k, self.k_norm, self.rms_norm_eps
         )
 
-
         '''
             Apply rope to q and k, v never gets rope
         '''
@@ -102,13 +100,22 @@ class Qwen3MultiHeadAttention:
         assert cache_offset - L == offset, "offset passed in must match cache's prior length"
 
 
-        attention = scaled_dot_product_attention_grouped(
-            query=q,
-            key=k,
-            value=v,
-            scale=1/math.sqrt(self.head_dim),
-            mask=mask
-        ).astype(x.dtype)
+        if self.use_flash_attention:
+            attention = flash_attention(
+                query=q,
+                key=k,
+                value=v,
+                scale=1/math.sqrt(self.head_dim),
+                mask=mask
+            ).astype(x.dtype)
+        else:
+            attention = scaled_dot_product_attention_grouped(
+                query=q,
+                key=k,
+                value=v,
+                scale=1/math.sqrt(self.head_dim),
+                mask=mask
+            ).astype(x.dtype)
 
         # B L Hq D
         output = attention.swapaxes(-3, -2)
@@ -228,7 +235,6 @@ class Qwen3TransformerBlock:
 
         return x
 
-
 class Qwen3ModelWeek2:
     def __init__(
         self,
@@ -270,6 +276,7 @@ class Qwen3ModelWeek2:
                 ].post_attention_layernorm.weight,
                 max_seq_len=mlx_model.args.max_position_embeddings,
                 theta=mlx_model.args.rope_theta,
+                use_flash_attention=enable_flash_attn
             )
 
             self.layers.append(layer)
