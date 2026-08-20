@@ -168,7 +168,7 @@ def flash_attention(
     key: mx.array,
     value: mx.array,
     scale: float | None = None,
-    mask: mx.array | None = None,
+    mask: mx.array| str | None = None,
 ) -> mx.array:
 
     factor = mx.rsqrt(query.shape[-1]) if scale is None else scale #type: ignore

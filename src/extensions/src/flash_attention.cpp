@@ -102,7 +102,7 @@ namespace tiny_llm_ext {
         const int Tr = (L + Br - 1) / Br;
         const int Tc = (S + Bc - 1) / Bc;
 
-        const int q_kv_heads_ratio = num_heads_ / num_kv_heads_;
+        const int q_kv_heads_ratio = num_heads_ / num_kv_heads_; // num heads: 10, num_kv_heads: 2, ratio: 5
 
         // Same unsafe_weak_copy capture pattern as quantized_matmul_impl -- these
         // arrays are guaranteed to stay alive for the duration of this dispatch.
