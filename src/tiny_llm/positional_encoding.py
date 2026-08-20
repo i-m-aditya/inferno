@@ -25,8 +25,8 @@ class RoPE:
         angles = mx.outer(pos, freqs)
 
 
-        self.cos_freqs = mx.cos(angles)
-        self.sin_freqs = mx.sin(angles)
+        self.cos_freqs = mx.cos(angles) # L x D/2
+        self.sin_freqs = mx.sin(angles) # L x D/2
         self.traditional = traditional
 
 
@@ -54,12 +54,29 @@ class RoPE:
         if offset is None:
             cos = self.cos_freqs[:L] #
             sin = self.sin_freqs[:L]
+        elif isinstance(offset, list):
+
+            # offset: [[1:2], [3:5], [7:8]]
+            '''
+
+            '''
+            cos = []
+            sin = []
+            for off in offset:
+                cos.append(self.cos_freqs[off])
+                sin.append(self.sin_freqs[off])
+
+            cos = mx.stack(cos, axis=0)
+            sin = mx.stack(sin, axis=0)
+
+            cos = cos[:, :, None, :]
+            sin = sin[:, :, None, :]
         else:
             cos = self.cos_freqs[offset]
             sin = self.sin_freqs[offset]
+            cos = cos[None, :, None, :]
+            sin = sin[None, :, None, :]
 
-        cos = cos[None, :, None, :]
-        sin = sin[None, :, None, :]
         if self.traditional:
             x1 = x[..., 0::2] # even indices
             x2 = x[..., 1::2] # odd indices
