@@ -9,7 +9,6 @@ class RoPE:
         base: int = 10000,
         traditional: bool = False,
     ):
-
         assert dims % 2 == 0, "dims must be even"
         # Step 1: frequency per pair index i, i = 0 .. D//2 - 1
         # theta_i = base ** (-2i / D)
@@ -17,19 +16,15 @@ class RoPE:
 
         freqs = base ** (-inner)
 
-
         # step 2: positions 0 .. seq_len-1
         pos = mx.arange(seq_len) # shape(seq_len)
 
         # step 3: outer product -> angles[pos, i] = pos * freq[i]
         angles = mx.outer(pos, freqs)
 
-
-        self.cos_freqs = mx.cos(angles)
-        self.sin_freqs = mx.sin(angles)
+        self.cos_freqs = mx.cos(angles) # L x D/2
+        self.sin_freqs = mx.sin(angles) # L x D/2
         self.traditional = traditional
-
-
 
     '''
     Overall desired outcome of `__call__`
@@ -54,12 +49,33 @@ class RoPE:
         if offset is None:
             cos = self.cos_freqs[:L] #
             sin = self.sin_freqs[:L]
+            cos = cos[None, :, None, :]
+            sin = sin[None, :, None, :]
+        elif isinstance(offset, list):
+            cos = []
+            sin = []
+            for off in offset:
+                # slice bounds may come in as np.int64 (e.g. from iterating a
+                # numpy array) -- MLX indexing requires plain Python ints.
+                off = slice(
+                    int(off.start) if off.start is not None else None,
+                    int(off.stop) if off.stop is not None else None,
+                    int(off.step) if off.step is not None else None,
+                )
+                cos.append(self.cos_freqs[off])
+                sin.append(self.sin_freqs[off])
+
+            cos = mx.stack(cos, axis=0)
+            sin = mx.stack(sin, axis=0)
+
+            cos = cos[:, :, None, :]
+            sin = sin[:, :, None, :]
         else:
             cos = self.cos_freqs[offset]
             sin = self.sin_freqs[offset]
+            cos = cos[None, :, None, :]
+            sin = sin[None, :, None, :]
 
-        cos = cos[None, :, None, :]
-        sin = sin[None, :, None, :]
         if self.traditional:
             x1 = x[..., 0::2] # even indices
             x2 = x[..., 1::2] # odd indices

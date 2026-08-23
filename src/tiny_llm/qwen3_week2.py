@@ -57,7 +57,7 @@ class Qwen3MultiHeadAttention:
     def __call__(
         self,
         x: mx.array,
-        offset: int,
+        offset: int | list[int],
         cache: TinyKvCache,
         mask: mx.array | str | None = None,
     ) -> mx.array:
@@ -78,27 +78,43 @@ class Qwen3MultiHeadAttention:
             k, self.k_norm, self.rms_norm_eps
         )
 
-        '''
-            Apply rope to q and k, v never gets rope
-        '''
-        # B, H_q, L, D
-        q = self.rope(
-            x=q, offset=slice(offset, offset + L)
-        ).swapaxes(-3,-2).astype(mx.float32)
 
-         # B, H, L, D
-        k = self.rope(
-            x=k, offset=slice(offset, offset + L)
-        ).swapaxes(-3, -2).astype(mx.float32)
+        if isinstance(offset, int):
+
+            # B, H_q, L, D
+            q = self.rope(
+                x=q, offset=slice(offset, offset + L)
+            ).swapaxes(-3,-2).astype(mx.float32)
+
+            # B, H, L, D
+            k = self.rope(
+                x=k, offset=slice(offset, offset + L)
+            ).swapaxes(-3, -2).astype(mx.float32)
+        else:
+            q = self.rope(
+                x=q,
+                offset=[slice(off, off+L) for off in offset]
+            ).swapaxes(-3,-2).astype(mx.float32)
+
+            # B, H, L, D
+            k = self.rope(
+                x=k,
+                offset=[slice(off, off+L) for off in offset]
+            ).swapaxes(-3, -2).astype(mx.float32)
 
         # B, H, L, D
         v = v.swapaxes(-3, -2).astype(mx.float32)
 
 
         # caching (k/v are already rope'd; cache accumulates rotated K, raw V)
-        k, v, cache_offset, _ = cache.update_and_fetch(k, v, None, None)
-        assert cache_offset - L == offset, "offset passed in must match cache's prior length"
+        k, v, cache_offset, cache_mask = cache.update_and_fetch(k, v, L, None)
+        if cache_offset is not None:
+            assert cache_offset - L == offset, "offset passed in must match cache's prior length"
 
+        # BatchingKvCache builds its own padding-aware mask; TinyKvFullCache
+        # never does (always returns None here), so fall back to the mask
+        # passed in from the model level in that case.
+        effective_mask = cache_mask if cache_mask is not None else mask
 
         if self.use_flash_attention:
             attention = flash_attention(
@@ -106,7 +122,7 @@ class Qwen3MultiHeadAttention:
                 key=k,
                 value=v,
                 scale=1/math.sqrt(self.head_dim),
-                mask=mask
+                mask=effective_mask
             ).astype(x.dtype)
         else:
             attention = scaled_dot_product_attention_grouped(
@@ -114,7 +130,7 @@ class Qwen3MultiHeadAttention:
                 key=k,
                 value=v,
                 scale=1/math.sqrt(self.head_dim),
-                mask=mask
+                mask=effective_mask
             ).astype(x.dtype)
 
         # B L Hq D
