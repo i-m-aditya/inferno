@@ -45,7 +45,18 @@ class Request:
         """
         if self.is_prefill_done:
             raise ValueError("prefill called after done")
-        # TODO: in task 4, prefill the full request at once; in task 5, prefill a chunk at a time
+        # Task 4: prefill the full request at once; Task 5 will chunk this.
+
+        prompt = self.prefill_tokens.reshape((1, -1))
+        token = _step(self.model, prompt, self.offset, self.kv_cache)
+        self.next_token = token.item()
+
+        self.offset += self.prefill_tokens.size
+        self.is_prefill_done = True
+
+
+
+
 
     def decode_done(self, token, update_offset=True):
         if self.is_done:
@@ -54,6 +65,9 @@ class Request:
             self.is_done = True
             return
         # TODO: update the offset and add the token to the detokenizer
+        if update_offset:
+            self.offset += 1
+        self.detokenizer.add_token(token=token)
 
     def text(self):
         return self.detokenizer.text
@@ -134,7 +148,20 @@ def batch_generate(
                 made_progress = True
             if pending_prefill_request.is_prefill_done:
                 # Implement this: find an idle slot and add the request to the decode requests
-                pass
+                idle_slot = 0
+                decode_requests_len = len(decode_requests)
+                while idle_slot < decode_requests_len and decode_requests[idle_slot] != None:
+                    idle_slot += 1
+                    decode_requests[idle_slot] = pending_prefill_request
+
+                if idle_slot >= decode_requests_len:
+                    continue
+                for i in range(len(kv_cache)):
+                    kv_cache[i].add_request(pending_prefill_request.kv_cache[i], idle_slot)
+
+                pending_prefill_request = None
+
+
             if made_progress:
                 _print_progress(
                     decode_requests,

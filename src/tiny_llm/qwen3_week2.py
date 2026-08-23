@@ -219,7 +219,7 @@ class Qwen3TransformerBlock:
     def __call__(
         self,
         x: mx.array,
-        offset: int,
+        offset: int | list[int],
         cache: TinyKvCache,
         mask: mx.array | str | None = None,
     ) -> mx.array:
@@ -295,7 +295,7 @@ class Qwen3ModelWeek2:
     def __call__(
         self,
         inputs: mx.array,
-        offset: int,
+        offset: int | list[int],
         cache: list[TinyKvCache],
     ) -> mx.array:
         # N.. x L x E
