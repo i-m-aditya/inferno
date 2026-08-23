@@ -131,7 +131,11 @@ def scaled_dot_product_attention_grouped(
         scale = 1 / math.sqrt(D)
 
     if isinstance(mask, mx.array):
-        mask =  mask.reshape(*N, h, n_repeats, L, S)
+        # mask may arrive with a head dim of 1 (broadcast across all H_q
+        # heads) -- broadcast to the full head count before reshaping,
+        # since reshape can't invent new elements the way broadcast can.
+        mask = mx.broadcast_to(mask, (*N, h_q, L, S))
+        mask = mask.reshape(*N, h, n_repeats, L, S)
 
         # N h n_repeats L D
         attention = scaled_dot_product_attention_simple(
