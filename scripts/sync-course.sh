@@ -26,8 +26,10 @@ git fetch -q course main
 git fetch -q upstream main
 
 # Commits to transfer, oldest-first.
+# git cherry already emits oldest-first; keep that order so each commit is
+# applied on top of its prerequisites.
 PICKS=$(git cherry upstream/main course/main "$LAST" \
-        | awk '$1=="+" {a[i++]=$2} END {for (j=i-1; j>=0; j--) print a[j]}')
+        | awk '$1=="+" {print $2}')
 
 if [ -z "$PICKS" ]; then
   echo "Nothing to sync — standalone repo already contains all course commits."
