@@ -147,19 +147,20 @@ def batch_generate(
                 pending_prefill_request.try_prefill()
                 made_progress = True
             if pending_prefill_request.is_prefill_done:
-                # Implement this: find an idle slot and add the request to the decode requests
-                idle_slot = 0
-                decode_requests_len = len(decode_requests)
-                while idle_slot < decode_requests_len and decode_requests[idle_slot] != None:
-                    idle_slot += 1
+                idle_slot = None
+                for i in range(len(decode_requests)):
+                    if decode_requests[i] is None:
+                        idle_slot = i
+                        break
+
+                if idle_slot is not None:
                     decode_requests[idle_slot] = pending_prefill_request
-
-                if idle_slot >= decode_requests_len:
-                    continue
-                for i in range(len(kv_cache)):
-                    kv_cache[i].add_request(pending_prefill_request.kv_cache[i], idle_slot)
-
-                pending_prefill_request = None
+                    for i in range(len(kv_cache)):
+                        kv_cache[i].add_request(pending_prefill_request.kv_cache[i], idle_slot)
+                    pending_prefill_request = None
+                # else: no free slot yet -- leave pending_prefill_request as-is
+                # (waiting), and let the decode step below still run normally
+                # for whichever requests are already active.
 
 
             if made_progress:

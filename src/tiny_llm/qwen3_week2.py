@@ -287,9 +287,7 @@ class Qwen3ModelWeek2:
                 w_down=mlx_model.model.layers[i].mlp.down_proj,
                 w_up=mlx_model.model.layers[i].mlp.up_proj,
                 w_input_layernorm=mlx_model.model.layers[i].input_layernorm.weight,
-                w_post_attention_layernorm=mlx_model.model.layers[
-                    i
-                ].post_attention_layernorm.weight,
+                w_post_attention_layernorm=mlx_model.model.layers[i].post_attention_layernorm.weight,
                 max_seq_len=mlx_model.args.max_position_embeddings,
                 theta=mlx_model.args.rope_theta,
                 use_flash_attention=enable_flash_attn
