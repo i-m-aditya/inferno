@@ -44,3 +44,9 @@ format-cpp.shell = "find src/extensions -type file \\( -name '*.h' -or -name '*.
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
 pythonpath = "src"
+
+
+[tool.pyright]
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
