@@ -1,8 +1,8 @@
 import mlx.core as mx
-from mlx_lm.tokenizer_utils import TokenizerWrapper
+from mlx_lm.tokenizer_utils import TokenizerWrapper, StreamingDetokenizer
 from .kv_cache import *
 from .qwen3_week2 import Qwen3ModelWeek2
-from typing import Callable
+from typing import Callable, cast
 from datetime import datetime
 
 
@@ -27,7 +27,9 @@ class Request:
         self.prompt = prompt
         self.kv_cache = [TinyKvFullCache() for _ in range(model.num_hidden_layers)]
         self.model = model
-        self.detokenizer = tokenizer.detokenizer.__class__(tokenizer._tokenizer)
+        self.detokenizer: StreamingDetokenizer = cast(
+            StreamingDetokenizer, tokenizer.detokenizer.__class__(tokenizer._tokenizer)
+        )
         self.prefill_tokens = mx.array(
             tokenizer.encode(prompt, add_special_tokens=False)
         )
@@ -53,10 +55,6 @@ class Request:
 
         self.offset += self.prefill_tokens.size
         self.is_prefill_done = True
-
-
-
-
 
     def decode_done(self, token, update_offset=True):
         if self.is_done:
@@ -177,13 +175,40 @@ def batch_generate(
         if any(req is not None for req in decode_requests):
             next_tokens = []
             offsets = []
-            # TODO: collect the next tokens and offsets from the decode requests
-            next_tokens = _step(model, next_tokens.reshape(-1, 1), offsets, kv_cache)
+            #collect the next tokens and offsets from the decode requests
+            for _slot, request in enumerate(decode_requests):
+                if request is not None:
+                    next_tokens.append(request.next_token)
+                    offsets.append(request.offset)
+                    continue
+                next_tokens.append(0)
+                offsets.append(0)
+
+            next_tokens = _step(model, mx.array(next_tokens).reshape(-1, 1), offsets, kv_cache)
             for i in range(batch_size):
                 # TODO: check if the decode has finished by comparing EOS or the seqlength. If so,
                 # remove the request from the decode requests and add the result to the result list;
                 # otherwise, call `decode_done` to update the offset and add the token to the detokenizer
-                pass
+
+
+                token = next_tokens[i].item() # extract the scalar
+                req = decode_requests[i]
+                if req is None:
+                    continue
+
+                req.decode_done(token=token)
+                if req.is_done or req.offset >= max_seq_len:
+                    decode_requests[i] = None
+                    result.append((req.prompt_idx, req.text()))
+
+                    for layer in range(len(kv_cache)):
+                        kv_cache[layer].remove_request(i)
+
+
+                else:
+                    req.next_token = token
+                    decode_requests[i] = req
+
             _print_progress(
                 decode_requests,
                 pending_prefill_request,
