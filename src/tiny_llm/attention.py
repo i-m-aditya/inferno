@@ -1,6 +1,7 @@
 import math
 
 import mlx.core as mx
+from typing_extensions import final
 from .basics import softmax, linear
 from extensions import tiny_llm_ext
 
@@ -31,6 +32,7 @@ def scaled_dot_product_attention_simple(
 
     return attention
 
+@final
 class SimpleMultiHeadAttention:
     def __init__(
         self,
@@ -175,7 +177,7 @@ def flash_attention(
     mask: mx.array| str | None = None,
 ) -> mx.array:
 
-    factor = mx.rsqrt(query.shape[-1]) if scale is None else scale #type: ignore
+    factor = query.shape[-1] ** -0.5 if scale is None else scale
     factor  = mx.array(factor).astype(query.dtype)
 
 
@@ -197,11 +199,12 @@ def flash_attention(
     elif mask is None:
         mask = mx.zeros((*B, H_q, L, S))
     else:
+        assert isinstance(mask, mx.array)
         mask =  mx.broadcast_to(mask, [*B, H_q, L, S])
 
     mask = mx.contiguous(mx.reshape(mask, (N, L, S))).astype(mx.float32)
 
-    scores = tiny_llm_ext.flash_attention(
+    scores = tiny_llm_ext.flash_attention(  # pyright: ignore[reportAttributeAccessIssue]
         query,
         key,
         value,
