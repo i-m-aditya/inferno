@@ -1,8 +1,8 @@
 import mlx.core as mx
 from mlx_lm.tokenizer_utils import TokenizerWrapper, StreamingDetokenizer
-from .kv_cache import *
+from .kv_cache import BatchingKvCache, TinyKvFullCache
 from .qwen3_week2 import Qwen3ModelWeek2
-from typing import Callable, cast
+from typing import Any, Callable, cast
 from datetime import datetime
 
 
@@ -18,7 +18,7 @@ def _step(model, y, offsets, kv_cache):
 class Request:
     def __init__(
         self,
-        model: any,
+        model: Any,
         tokenizer: TokenizerWrapper,
         prompt: str,
         prefill_max_step: int = 128,
@@ -49,12 +49,19 @@ class Request:
             raise ValueError("prefill called after done")
         # Task 4: prefill the full request at once; Task 5 will chunk this.
 
-        prompt = self.prefill_tokens.reshape((1, -1))
-        token = _step(self.model, prompt, self.offset, self.kv_cache)
+        chunk = self.prefill_tokens[
+            self.offset : self.offset + self.prefill_max_step
+        ].reshape((1, -1))
+
+        token = _step(self.model, chunk, self.offset, self.kv_cache)
         self.next_token = token.item()
 
-        self.offset += self.prefill_tokens.size
-        self.is_prefill_done = True
+        self.offset += chunk.size
+        if self.offset >= self.prefill_tokens.size:
+            self.is_prefill_done = True
+
+        # to fix lazy graph from growing without bounds
+        mx.eval([c.key_values for c in self.kv_cache])
 
     def decode_done(self, token, update_offset=True):
         if self.is_done:
@@ -109,7 +116,7 @@ def _print_progress(
 
 
 def batch_generate(
-    model: any,
+    model: Any,
     tokenizer: TokenizerWrapper,
     prompts: list[str],
     max_seq_len=512,
@@ -146,20 +153,21 @@ def batch_generate(
                 made_progress = True
             if pending_prefill_request.is_prefill_done:
                 idle_slot = None
-                for i in range(len(decode_requests)):
-                    if decode_requests[i] is None:
-                        idle_slot = i
+                for req_idx in range(len(decode_requests)):
+                    if decode_requests[req_idx] is None:
+                        idle_slot = req_idx
                         break
 
                 if idle_slot is not None:
                     decode_requests[idle_slot] = pending_prefill_request
-                    for i in range(len(kv_cache)):
-                        kv_cache[i].add_request(pending_prefill_request.kv_cache[i], idle_slot)
+                    for layer in range(len(kv_cache)):
+                        kv_cache[layer].add_request(
+                            pending_prefill_request.kv_cache[layer], idle_slot
+                        )
                     pending_prefill_request = None
                 # else: no free slot yet -- leave pending_prefill_request as-is
                 # (waiting), and let the decode step below still run normally
                 # for whichever requests are already active.
-
 
             if made_progress:
                 _print_progress(
@@ -175,7 +183,7 @@ def batch_generate(
         if any(req is not None for req in decode_requests):
             next_tokens = []
             offsets = []
-            #collect the next tokens and offsets from the decode requests
+            # collect the next tokens and offsets from the decode requests
             for _slot, request in enumerate(decode_requests):
                 if request is not None:
                     next_tokens.append(request.next_token)
@@ -184,30 +192,30 @@ def batch_generate(
                 next_tokens.append(0)
                 offsets.append(0)
 
-            next_tokens = _step(model, mx.array(next_tokens).reshape(-1, 1), offsets, kv_cache)
-            for i in range(batch_size):
+            next_tokens = _step(
+                model, mx.array(next_tokens).reshape(-1, 1), offsets, kv_cache
+            )
+            for req_idx in range(batch_size):
                 # TODO: check if the decode has finished by comparing EOS or the seqlength. If so,
                 # remove the request from the decode requests and add the result to the result list;
                 # otherwise, call `decode_done` to update the offset and add the token to the detokenizer
 
-
-                token = next_tokens[i].item() # extract the scalar
-                req = decode_requests[i]
+                token = next_tokens[req_idx].item()  # extract the scalar
+                req = decode_requests[req_idx]
                 if req is None:
                     continue
 
                 req.decode_done(token=token)
                 if req.is_done or req.offset >= max_seq_len:
-                    decode_requests[i] = None
+                    decode_requests[req_idx] = None
                     result.append((req.prompt_idx, req.text()))
 
-                    for layer in range(len(kv_cache)):
-                        kv_cache[layer].remove_request(i)
-
+                    for req_idx in range(len(kv_cache)):
+                        kv_cache[req_idx].remove_request(req_idx)
 
                 else:
                     req.next_token = token
-                    decode_requests[i] = req
+                    decode_requests[req_idx] = req
 
             _print_progress(
                 decode_requests,
