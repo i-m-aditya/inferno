@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 import mlx.core as mx
+from typing_extensions import final
 
 from .attention import causal_mask
 
@@ -90,7 +91,7 @@ class BatchingKvCache(TinyKvCache):
     def remove_request(self, id: int):
         self.slots[id] = None
 
-
+@final
 class TinyKvFullCache(TinyKvCache):
     def __init__(self):
         self.key_values: tuple[mx.array, mx.array] | None = None
